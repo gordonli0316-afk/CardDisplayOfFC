@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QPWFLHS FC Display and Tactic Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #1a1c23; color: #e2e8f0; font-family: 'Segoe UI', Tahoma, sans-serif; overflow-x: hidden; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #3f4452; border-radius: 4px; }
+        
+        .tab-active { border-bottom: 2px solid #10b981; color: #10b981; font-weight: bold; }
+        .tab-inactive { border-bottom: 2px solid transparent; color: #9ca3af; }
+        .tab-inactive:hover { color: #d1d5db; border-bottom: 2px solid #4b5563; }
+
+        .player-card { transition: transform 0.2s ease, box-shadow 0.2s ease; background-size: cover; background-position: center; cursor: pointer; }
+        .player-card:hover { transform: translateY(-5px); box-shadow: 0 10px 25px rgba(16, 185, 129, 0.2); z-index: 10; }
+        
+        .detail-card { background-size: cover; background-position: center; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+
+        .fm-panel { background-color: #242730; border: 1px solid #3f4452; }
+        .pitch-container { background-color: #346b38; border: 2px solid #ffffff; position: relative; overflow: hidden; aspect-ratio: 2/3; width: 100%; max-width: 500px; margin: 0 auto; box-shadow: inset 0 0 50px rgba(0,0,0,0.3); }
+        .pitch-line { position: absolute; background-color: rgba(255,255,255,0.6); }
+        .half-line { top: 50%; left: 0; width: 100%; height: 2px; transform: translateY(-50%); }
+        .center-circle { top: 50%; left: 50%; width: 100px; height: 100px; border: 2px solid rgba(255,255,255,0.6); border-radius: 50%; transform: translate(-50%, -50%); }
+        .penalty-area-top { top: 0; left: 50%; width: 220px; height: 90px; border: 2px solid rgba(255,255,255,0.6); border-top: none; transform: translateX(-50%); }
+        .penalty-area-bottom { bottom: 0; left: 50%; width: 220px; height: 90px; border: 2px solid rgba(255,255,255,0.6); border-bottom: none; transform: translateX(-50%); }
+        
+        .bench-item:hover { background-color: #323642; border-left: 4px solid #10b981; }
+        .player-token { position: absolute; transform: translate(-50%, -50%); cursor: grab; z-index: 20; transition: transform 0.1s; }
+        .player-token:active { cursor: grabbing; transform: translate(-50%, -50%) scale(1.1); z-index: 30; }
+        .token-label { background-color: rgba(17, 24, 39, 0.9); color: white; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-top: 2px; white-space: nowrap; text-align: center; border: 1px solid #3f4452;}
+        .jersey-shadow { filter: drop-shadow(0px 4px 6px rgba(0, 0, 0, 0.5)); }
+        .number-shadow { text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.9), 0px 0px 2px rgba(0, 0, 0, 1); }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <header class="bg-[#111] border-b border-gray-800 px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0 relative z-50">
+        <h1 class="text-xl md:text-2xl font-bold tracking-wider">
+            QPWFLHS FC <span class="text-gray-400 text-lg font-normal">Display and Tactic Center</span>
+        </h1>
+        <nav class="flex space-x-8 text-sm uppercase tracking-widest cursor-pointer items-center">
+            <div id="tab-gallery" onclick="switchTab('gallery')" class="pb-2 tab-active transition-colors" data-i18n="tabGallery">卡片展示库</div>
+            <div id="tab-tactics" onclick="switchTab('tactics')" class="pb-2 tab-inactive transition-colors" data-i18n="tabTactics">战术板排兵</div>
+            <button onclick="toggleLanguage()" class="ml-4 bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1 rounded border border-gray-600 transition-colors text-xs font-bold" id="lang-btn">
+                EN / 中
+            </button>
+        </nav>
+    </header>
+
+    <div class="flex-1 overflow-hidden relative">
+        
+        <main id="view-gallery" class="absolute inset-0 overflow-y-auto p-6 md:p-10 active-view z-10 transition-opacity">
+            <div class="max-w-7xl mx-auto">
+                <div class="mb-6 text-gray-400">
+                    <span data-i18n="sysLoaded1">系统已读取数据：</span>
+                    <span class="text-emerald-500 font-bold" id="gallery-count">0</span> 
+                    <span data-i18n="sysLoaded2">名球员</span>
+                </div>
+                <div id="gallery-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6"></div>
+            </div>
+        </main>
+
+        <main id="view-tactics" class="hidden absolute inset-0 overflow-hidden p-4 md:p-6 flex flex-col z-10">
+            <div class="max-w-7xl mx-auto w-full h-full flex flex-col md:flex-row gap-6">
+                <div class="w-full md:w-1/3 lg:w-1/4 fm-panel rounded-lg flex flex-col h-full overflow-hidden shadow-lg">
+                    <div class="bg-gray-800 p-3 flex justify-between items-center border-b border-gray-700 tracking-wider">
+                        <span class="font-bold text-sm text-gray-300" data-i18n="playerPool">球员名单</span>
+                        <span class="text-xs bg-emerald-600/20 text-emerald-400 px-2 py-1 rounded">
+                            <span data-i18n="onPitch">场上: </span><span id="pitch-count">0</span>/8
+                        </span>
+                    </div>
+                    <div id="bench-container" class="flex-1 overflow-y-auto p-2" ondragover="allowDrop(event)" ondrop="dropOnBench(event)"></div>
+                </div>
+
+                <div class="w-full md:w-2/3 lg:w-3/4 flex justify-center items-center h-full relative">
+                    <div id="pitch" class="pitch-container rounded-lg" ondragover="allowDrop(event)" ondrop="dropOnPitch(event)">
+                        <div class="pitch-line half-line"></div>
+                        <div class="center-circle absolute"></div>
+                        <div class="penalty-area-top absolute"></div>
+                        <div class="penalty-area-bottom absolute"></div>
+                        <div id="pitch-players"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <main id="view-detail" class="hidden absolute inset-0 overflow-y-auto p-6 md:p-10 z-20 bg-[#1a1c23]">
+            <div class="max-w-6xl mx-auto">
+                <button onclick="closeDetail()" class="text-gray-400 hover:text-emerald-400 font-bold mb-6 flex items-center transition-colors">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                    <span data-i18n="backBtn">返回卡片库</span>
+                </button>
+
+                <div class="flex flex-col md:flex-row gap-10">
+                    <div class="w-full md:w-5/12 flex justify-center items-start" id="detail-card-container"></div>
+                    <div class="w-full md:w-7/12 fm-panel rounded-xl flex flex-col h-[650px] shadow-2xl relative">
+                        <div class="p-6 border-b border-gray-700 flex justify-between items-center bg-gray-800/50 rounded-t-xl">
+                            <div>
+                                <h2 class="text-2xl font-black tracking-wider text-white" id="detail-name">PLAYER NAME</h2>
+                                <p class="text-sm text-gray-400 mt-1" data-i18n="commentSection">球迷讨论区</p>
+                            </div>
+                            <button onclick="toggleLike()" class="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 px-4 py-2 rounded-full transition-colors group">
+                                <span class="text-xl group-hover:scale-110 transition-transform">❤️</span>
+                                <span class="font-bold text-lg" id="detail-likes">0</span>
+                            </button>
+                        </div>
+                        <div id="comment-list" class="flex-1 overflow-y-auto p-6 space-y-5"></div>
+                        <div class="p-4 border-t border-gray-700 bg-gray-800/80 rounded-b-xl">
+                            <textarea id="comment-input" rows="3" class="w-full bg-[#121318] border border-gray-600 rounded-lg p-3 text-white focus:outline-none focus:border-emerald-500 transition-colors resize-none" data-i18n-placeholder="writeComment" placeholder="写下你的评论..."></textarea>
+                            <div class="flex justify-end mt-3">
+                                <button onclick="addComment()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-lg" data-i18n="submitBtn">发布评论</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const i18n = {
+            zh: {
+                tabGallery: "卡片展示库",
+                tabTactics: "战术板排兵",
+                sysLoaded1: "系统已读取数据：",
+                sysLoaded2: " 名球员",
+                playerPool: "球员名单",
+                onPitch: "场上: ",
+                captain: "队长",
+                dragBtn: "拖拽上场",
+                alertFull: "⚠️ 首发阵容已满，战术板最多只能上场 8 名球员！",
+                likeLimit: "⚠️ 您今天的设备点赞额度 (50次) 已用完，请明天再来支持球员！",
+                backBtn: "返回卡片库",
+                commentSection: "球迷讨论区",
+                writeComment: "写下你的评论...",
+                submitBtn: "发布评论",
+                noComments: "暂无评论，来做第一个留言的人吧！"
+            },
+            en: {
+                tabGallery: "Card Gallery",
+                tabTactics: "Tactics Board",
+                sysLoaded1: "System loaded: ",
+                sysLoaded2: " players",
+                playerPool: "Player Pool",
+                onPitch: "On Pitch: ",
+                captain: "Captain",
+                dragBtn: "Drag",
+                alertFull: "⚠️ Starting lineup is full, maximum 8 players allowed!",
+                likeLimit: "⚠️ You have reached your daily limit of 50 likes. Try again tomorrow!",
+                backBtn: "Back to Gallery",
+                commentSection: "Fan Discussion",
+                writeComment: "Write your comment here...",
+                submitBtn: "Post Comment",
+                noComments: "No comments yet. Be the first to post!"
+            }
+        };
+
+        let currentLang = 'zh';
+        let captainId = null;
+        let activeTab = 'gallery';
+        let currentDetailPlayerId = null;
+
+        const playersData = [
+            { id: 1, name: 'Kevin', ovr: 81, pos: 'CM', stats: [81, 85, 77, 78, 80, 82], isGK: false, number: 19, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 2, name: 'Edison', ovr: 80, pos: 'LWF', stats: [84, 78, 79, 74, 82, 79], isGK: false, number: 14, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 3, name: 'Samuel', ovr: 79, pos: 'ST', stats: [83, 79, 87, 75, 72, 78], isGK: false, number: 17, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 4, name: 'William', ovr: 78, pos: 'LWF', stats: [80, 78, 80, 75, 77, 78], isGK: false, number: 11, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 5, name: 'Leo', ovr: 77, pos: 'ST', stats: [78, 75, 82, 79, 70, 77], isGK: false, number: 26, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 6, name: 'Eason', ovr: 75, pos: 'DMF', stats: [77, 72, 68, 80, 72, 82], isGK: false, number: 21, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 7, name: 'Harley', ovr: 72, pos: 'RWF', stats: [74, 73, 74, 69, 70, 70], isGK: false, number: 2, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 8, name: 'Pandora', ovr: 77, pos: 'RB', stats: [77, 75, 76, 78, 75, 80], isGK: false, number: 24, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 10, name: 'Christopher', ovr: 76, pos: 'CB/LB', stats: [75, 72, 76, 78, 74, 81], isGK: false, number: 5, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 11, name: 'Micheal', ovr: 76, pos: 'ST/CAM', stats: [78, 79, 76, 75, 71, 76], isGK: false, number: 25, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 12, name: 'Venis', ovr: 72, pos: 'CB', stats: [76, 63, 70, 77, 65, 79], isGK: false, number: 13, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 14, name: 'Zeno', ovr: 68, pos: 'RB', stats: [70, 65, 63, 71, 66, 72], isGK: false, number: 12, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 15, name: 'Gordon', ovr: 77, pos: 'CAM', stats: [77, 77, 78, 73, 78, 74], isGK: false, number: 10, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 17, name: 'Thomas', ovr: 70, pos: 'GK', stats: [69, 71, 71, 69, 73, 71], isGK: true, number: 1, location: 'bench', x: 50, y: 50, likes: 0, comments: [] },
+            { id: 18, name: 'Hyman', ovr: 74, pos: 'GK', stats: [70, 75, 77, 76, 74, 74], isGK: true, number: 16, location: 'bench', x: 50, y: 50, likes: 0, comments: [] }
+        ];
+
+        function toggleLanguage() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            document.getElementById('lang-btn').innerText = currentLang === 'zh' ? 'EN / 中' : '中 / EN';
+            updateStaticText();
+            if (activeTab === 'tactics') renderTactics(); // 只有战术板需要动态文字渲染
+            if (activeTab === 'detail') renderDetailData();
+        }
+
+        function updateStaticText() {
+            const dict = i18n[currentLang];
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (dict[key]) el.innerText = dict[key];
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (dict[key]) el.placeholder = dict[key];
+            });
+        }
+
+        function openDetail(playerId) {
+            currentDetailPlayerId = playerId;
+            activeTab = 'detail';
+            document.getElementById('view-gallery').classList.add('hidden');
+            document.getElementById('view-tactics').classList.add('hidden');
+            document.getElementById('tab-gallery').className = "pb-2 tab-inactive transition-colors";
+            document.getElementById('tab-tactics').className = "pb-2 tab-inactive transition-colors";
+            document.getElementById('view-detail').classList.remove('hidden');
+            renderDetailData();
+        }
+
+        function closeDetail() {
+            currentDetailPlayerId = null;
+            switchTab('gallery');
+        }
+
+        function renderDetailData() {
+            if (!currentDetailPlayerId) return;
+            const player = playersData.find(p => p.id === currentDetailPlayerId);
+            if (!player) return;
+
+            const dict = i18n[currentLang];
+            const cardContainer = document.getElementById('detail-card-container');
+            const bgStyle = `background-image: url('${player.name}.jpg');`;
+            
+            // 完全清空详情页卡片上的冗余文字层，只展示卡片原图
+            cardContainer.innerHTML = `
+                <div class="detail-card relative w-full max-w-[360px] aspect-[2/3] bg-gray-800 rounded-2xl overflow-hidden border border-gray-600"
+                     style="${bgStyle}">
+                </div>
+            `;
+
+            document.getElementById('detail-name').innerText = player.name;
+            document.getElementById('detail-likes').innerText = player.likes;
+
+            const commentList = document.getElementById('comment-list');
+            commentList.innerHTML = '';
+            
+            if (player.comments.length === 0) {
+                commentList.innerHTML = `<div class="text-center text-gray-500 mt-10">${dict.noComments}</div>`;
+            } else {
+                player.comments.forEach(c => {
+                    const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-yellow-500'];
+                    const color = colors[c.user.length % colors.length];
+                    const initial = c.user.charAt(0).toUpperCase();
+
+                    commentList.innerHTML += `
+                        <div class="flex gap-4">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white shrink-0 ${color}">${initial}</div>
+                            <div class="flex-1 bg-gray-800/80 p-3 rounded-lg rounded-tl-none border border-gray-700">
+                                <div class="flex justify-between items-end mb-1">
+                                    <span class="font-bold text-emerald-400 text-sm">${c.user}</span>
+                                    <span class="text-xs text-gray-500">${c.time}</span>
+                                </div>
+                                <p class="text-gray-200 text-sm break-words">${c.text}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+                commentList.scrollTop = commentList.scrollHeight;
+            }
+        }
+
+        function toggleLike() {
+            if (!currentDetailPlayerId) return;
+            const todayStr = new Date().toDateString();
+            let dailyLikeData = JSON.parse(localStorage.getItem('fc_daily_likes') || '{}');
+            
+            if (dailyLikeData.date !== todayStr) {
+                dailyLikeData = { date: todayStr, count: 0 };
+            }
+            
+            if (dailyLikeData.count >= 50) {
+                alert(i18n[currentLang].likeLimit);
+                return;
+            }
+
+            const player = playersData.find(p => p.id === currentDetailPlayerId);
+            if (player) {
+                player.likes++;
+                dailyLikeData.count++;
+                localStorage.setItem('fc_daily_likes', JSON.stringify(dailyLikeData));
+                
+                document.getElementById('detail-likes').innerText = player.likes;
+                const btn = document.getElementById('detail-likes').parentElement;
+                btn.classList.add('scale-110', 'bg-red-500/20');
+                setTimeout(() => btn.classList.remove('scale-110', 'bg-red-500/20'), 200);
+            }
+        }
+
+        function addComment() {
+            if (!currentDetailPlayerId) return;
+            const input = document.getElementById('comment-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const player = playersData.find(p => p.id === currentDetailPlayerId);
+            if (player) {
+                const now = new Date();
+                const timeStr = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0');
+                player.comments.push({ user: 'Guest_User', text: text, time: timeStr });
+                input.value = ''; 
+                renderDetailData(); 
+            }
+        }
+
+        function getJerseyTokenSVG(isGK, number, isCaptain) {
+            const primary = isGK ? '#eab308' : '#6d28d9'; 
+            const armbandSVG = isCaptain ? 
+                `<line x1="75" y1="28" x2="88" y2="44" stroke="#000" stroke-width="8" />
+                 <line x1="75" y1="28" x2="88" y2="44" stroke="#fbbf24" stroke-width="5" />` : '';
+
+            return `
+                <svg viewBox="0 0 100 100" class="jersey-shadow w-full h-full" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M 30,20 Q 50,35 70,20 L 95,40 L 85,55 L 75,45 V 90 H 25 V 45 L 15,55 L 5,40 Z" fill="${primary}" stroke="#fff" stroke-width="2"/>
+                    ${armbandSVG}
+                    <text x="50" y="68" text-anchor="middle" font-family="Arial" font-weight="900" font-size="32" fill="#fff" class="number-shadow">${number}</text>
+                </svg>
+            `;
+        }
+
+        function toggleCaptain(event, id) {
+            event.stopPropagation();
+            if (event.target.checked) captainId = id;
+            else if (captainId === id) captainId = null;
+            renderTactics();
+        }
+
+        function switchTab(tabName) {
+            activeTab = tabName;
+            document.getElementById('view-gallery').classList.add('hidden');
+            document.getElementById('view-tactics').classList.add('hidden');
+            document.getElementById('view-detail').classList.add('hidden');
+            
+            document.getElementById('tab-gallery').className = "pb-2 tab-inactive transition-colors";
+            document.getElementById('tab-tactics').className = "pb-2 tab-inactive transition-colors";
+            
+            document.getElementById('view-' + tabName).classList.remove('hidden');
+            document.getElementById('tab-' + tabName).className = "pb-2 tab-active transition-colors";
+            
+            if(tabName === 'gallery') renderGallery();
+            if(tabName === 'tactics') renderTactics();
+        }
+
+        function renderGallery() {
+            const container = document.getElementById('gallery-container');
+            document.getElementById('gallery-count').innerText = playersData.length;
+            container.innerHTML = '';
+            
+            playersData.forEach(p => {
+                const bgStyle = `background-image: url('${p.name}.jpg');`;
+
+                // 完全清空卡片上的冗余文字层，只渲染带背景图的 div 容器
+                container.innerHTML += `
+                    <div onclick="openDetail(${p.id})" class="player-card relative w-full aspect-[2/3] bg-gray-800 rounded-xl overflow-hidden shadow-lg border border-gray-700"
+                         style="${bgStyle}">
+                    </div>
+                `;
+            });
+        }
+
+        function renderTactics() {
+            const benchContainer = document.getElementById('bench-container');
+            const pitchPlayers = document.getElementById('pitch-players');
+            benchContainer.innerHTML = '';
+            pitchPlayers.innerHTML = '';
+            let pitchCount = 0;
+            const dict = i18n[currentLang];
+
+            playersData.forEach(p => {
+                const isCap = (p.id === captainId);
+                const jerseySVG = getJerseyTokenSVG(p.isGK, p.number, isCap);
+
+                if (p.location === 'bench') {
+                    benchContainer.innerHTML += `
+                        <div class="bench-item flex justify-between items-center p-3 mb-2 bg-[#2a2d36] rounded cursor-grab border border-gray-700" 
+                             draggable="true" ondragstart="drag(event, ${p.id})">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 flex items-center justify-center relative">${jerseySVG}</div>
+                                <div>
+                                    <div class="font-bold text-gray-200">${p.name}</div>
+                                    <div class="text-xs text-gray-500">${p.pos} | OVR ${p.ovr}</div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col items-end gap-2">
+                                <label class="flex items-center gap-1 text-xs text-gray-400 cursor-pointer hover:text-yellow-400" onclick="event.stopPropagation()">
+                                    <input type="checkbox" ${isCap ? 'checked' : ''} onchange="toggleCaptain(event, ${p.id})" class="accent-yellow-400"> 
+                                    ${dict.captain}
+                                </label>
+                                <div class="text-gray-500 text-xs px-2 py-1 bg-gray-800 rounded">${dict.dragBtn}</div>
+                            </div>
+                        </div>
+                    `;
+                } else if (p.location === 'pitch') {
+                    pitchCount++;
+                    pitchPlayers.innerHTML += `
+                        <div class="player-token flex flex-col items-center" 
+                             style="left: ${p.x}%; top: ${p.y}%;"
+                             draggable="true" ondragstart="drag(event, ${p.id})">
+                            <div class="w-14 h-14 relative flex items-center justify-center">${jerseySVG}</div>
+                            <div class="token-label">${p.name}<br><span class="text-[9px] text-gray-300">${p.pos}</span></div>
+                        </div>
+                    `;
+                }
+            });
+            document.getElementById('pitch-count').innerText = pitchCount;
+        }
+
+        function allowDrop(event) { event.preventDefault(); }
+        function drag(event, id) { try { event.dataTransfer.setData("playerId", id); } catch (e) {} }
+
+        function dropOnPitch(event) {
+            event.preventDefault();
+            const id = parseInt(event.dataTransfer.getData("playerId"));
+            if (!id) return;
+
+            const player = playersData.find(p => p.id === id);
+            if (!player) return;
+
+            const currentPitchCount = playersData.filter(p => p.location === 'pitch').length;
+            if (player.location === 'bench' && currentPitchCount >= 8) {
+                alert(i18n[currentLang].alertFull);
+                return;
+            }
+
+            const pitchRect = document.getElementById('pitch').getBoundingClientRect();
+            let rawX = event.clientX - pitchRect.left;
+            let rawY = event.clientY - pitchRect.top;
+            
+            rawX = Math.max(0, Math.min(rawX, pitchRect.width));
+            rawY = Math.max(0, Math.min(rawY, pitchRect.height));
+
+            player.x = (rawX / pitchRect.width) * 100;
+            player.y = (rawY / pitchRect.height) * 100;
+            player.location = 'pitch';
+            renderTactics();
+        }
+
+        function dropOnBench(event) {
+            event.preventDefault();
+            const id = parseInt(event.dataTransfer.getData("playerId"));
+            if (!id) return;
+
+            const player = playersData.find(p => p.id === id);
+            if (player && player.location === 'pitch') {
+                player.location = 'bench';
+                renderTactics();
+            }
+        }
+
+        updateStaticText();
+        renderGallery();
+    </script>
+</body>
+</html>
